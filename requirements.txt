@@ -1,0 +1,13 @@
+pandas
+numpy
+flask
+tensorflow
+sentence-transformers
+scikit-learn
+faker
+tf-keras
+dotenv
+openpyxl
+sqlalchemy
+pymysql
+hf_xet
