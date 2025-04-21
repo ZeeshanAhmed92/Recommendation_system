@@ -1,4 +1,5 @@
 import os
+import ast
 import logging
 import warnings
 import pandas as pd
@@ -40,7 +41,7 @@ books = pd.read_sql("SELECT * FROM books", con=engine)
 users = pd.read_sql("SELECT * FROM users", con=engine)
 interactions = pd.read_sql("SELECT * FROM interactions", con=engine)
 
-def get_recommendations(user_id, top_n=10):
+def get_recommendations_by_user(user_id, top_n=10):
     if user_id not in users['user_id'].values:
         return books.sample(top_n)['title'].tolist()
 
@@ -65,3 +66,34 @@ def get_recommendations(user_id, top_n=10):
         recommended_book_ids = filtered_ids or list(candidate_books[top_indices])
 
     return books[books['bookId'].isin(recommended_book_ids)]['title'].head(top_n).tolist()
+
+def get_recommendations_by_genre(genre, top_n=10):
+    try:
+        # Load books data from the database
+        books = pd.read_sql("SELECT * FROM books", con=engine)
+        
+        if books.empty:
+            return {'error': 'No books data found in the database.'}
+
+        # Only evaluate strings that look like lists
+        def parse_genre(g):
+            try:
+                return ast.literal_eval(g) if isinstance(g, str) and g.startswith('[') else []
+            except Exception:
+                return []
+
+        books['genres'] = books['genres'].apply(parse_genre)
+
+        # Filter books that include the input genre
+        filtered_books = books[books['genres'].apply(lambda g: genre.lower() in [x.lower() for x in g])]
+
+        if filtered_books.empty:
+            # If no filtered books, return random sample of book titles
+            return books.sample(top_n)['title'].tolist()
+
+        # Return top_n book titles only
+        return filtered_books.head(top_n)['title'].tolist()
+
+    except Exception as e:
+        print(f"Error in get_recommendations_by_genre: {e}")
+        return {'error': str(e)}
