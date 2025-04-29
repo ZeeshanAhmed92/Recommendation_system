@@ -43,7 +43,7 @@ interactions = pd.read_sql("SELECT * FROM interactions", con=engine)
 
 def get_recommendations_by_user(user_id, top_n=10):
     if user_id not in users['user_id'].values:
-        return books.sample(top_n)['title'].tolist()
+        return books.sample(top_n)[['title', 'author', 'coverImg']].to_dict(orient='records')
 
     user_pref = users.loc[users['user_id'] == user_id, 'preferred_genre'].values[0]
 
@@ -51,7 +51,7 @@ def get_recommendations_by_user(user_id, top_n=10):
         genre_books = books[books['genres'].str.contains(user_pref, case=False, na=False)]
         if genre_books.empty:
             genre_books = books.sample(top_n)
-        return genre_books['title'].head(top_n).tolist()
+        return genre_books[['title', 'author', 'coverImg']].head(top_n).to_dict(orient='records')
 
     candidate_books = books['bookId'].values
     user_array = np.full(len(candidate_books), user_id)
@@ -65,17 +65,19 @@ def get_recommendations_by_user(user_id, top_n=10):
         filtered_ids = [bid for bid in recommended_book_ids if bid in genre_book_ids]
         recommended_book_ids = filtered_ids or list(candidate_books[top_indices])
 
-    return books[books['bookId'].isin(recommended_book_ids)]['title'].head(top_n).tolist()
+    return books[books['bookId'].isin(recommended_book_ids)][['title', 'author', 'coverImg']].head(top_n).to_dict(orient='records')
+
 
 def get_recommendations_by_genre(genre, top_n=10):
-    try:
-        # Load books data from the database
-        books = pd.read_sql("SELECT * FROM books", con=engine)
-        
-        if books.empty:
-            return {'error': 'No books data found in the database.'}
+    print(f"Genre received: {genre}")
 
-        # Only evaluate strings that look like lists
+    try:
+        books 
+    except Exception as e:
+        print(f"Error loading books.csv: {e}")
+        return {'error': f'Failed to load books: {e}'}
+
+    try:
         def parse_genre(g):
             try:
                 return ast.literal_eval(g) if isinstance(g, str) and g.startswith('[') else []
@@ -84,16 +86,16 @@ def get_recommendations_by_genre(genre, top_n=10):
 
         books['genres'] = books['genres'].apply(parse_genre)
 
-        # Filter books that include the input genre
-        filtered_books = books[books['genres'].apply(lambda g: genre.lower() in [x.lower() for x in g])]
+        filtered_books = books[books['genres'].apply(
+            lambda g: genre.lower() in [x.lower() for x in g]
+        )]
 
         if filtered_books.empty:
-            # If no filtered books, return random sample of book titles
-            return books.sample(top_n)['title'].tolist()
+            print("No matches found for genre, returning random books.")
+            return books.sample(top_n)[['title', 'genres', 'author', 'coverImg']].to_dict(orient='records')
 
-        # Return top_n book titles only
-        return filtered_books.head(top_n)['title'].tolist()
+        return filtered_books.head(top_n)[['title', 'author', 'coverImg']].to_dict(orient='records')
 
     except Exception as e:
-        print(f"Error in get_recommendations_by_genre: {e}")
+        print(f"Error in genre filtering: {e}")
         return {'error': str(e)}
