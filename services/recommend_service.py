@@ -42,8 +42,13 @@ users = pd.read_sql("SELECT * FROM users", con=engine)
 interactions = pd.read_sql("SELECT * FROM interactions", con=engine)
 
 def get_recommendations_by_user(user_id, top_n=10):
+    try:
+        user_id = int(user_id)
+    except ValueError:
+        raise ValueError("User ID must be an integer.")
+
     if user_id not in users['user_id'].values:
-        return books.sample(top_n)[['title', 'author', 'coverImg']].to_dict(orient='records')
+        raise ValueError(f"User ID {user_id} not found in the database.")
 
     user_pref = users.loc[users['user_id'] == user_id, 'preferred_genre'].values[0]
 
@@ -68,16 +73,13 @@ def get_recommendations_by_user(user_id, top_n=10):
     return books[books['bookId'].isin(recommended_book_ids)][['title', 'author', 'coverImg']].head(top_n).to_dict(orient='records')
 
 
+import ast
+
 def get_recommendations_by_genre(genre, top_n=10):
     print(f"Genre received: {genre}")
 
     try:
-        books 
-    except Exception as e:
-        print(f"Error loading books.csv: {e}")
-        return {'error': f'Failed to load books: {e}'}
-
-    try:
+        # Safely convert stringified lists to actual Python lists
         def parse_genre(g):
             try:
                 return ast.literal_eval(g) if isinstance(g, str) and g.startswith('[') else []
@@ -86,10 +88,12 @@ def get_recommendations_by_genre(genre, top_n=10):
 
         books['genres'] = books['genres'].apply(parse_genre)
 
+        # Filter by genre (case-insensitive)
         filtered_books = books[books['genres'].apply(
             lambda g: genre.lower() in [x.lower() for x in g]
         )]
 
+        # If no matches found, return random fallback
         if filtered_books.empty:
             print("No matches found for genre, returning random books.")
             return books.sample(top_n)[['title', 'genres', 'author', 'coverImg']].to_dict(orient='records')
