@@ -32,8 +32,8 @@ engine = create_engine(connection_string)
 
 # Load tables once at startup
 books_df = pd.read_sql("SELECT * FROM books", con=engine)
-users_df = pd.read_sql("SELECT * FROM users", con=engine)
-interactions_df = pd.read_sql("SELECT * FROM interactions", con=engine)
+# users_df = pd.read_sql("SELECT * FROM users", con=engine)
+# interactions_df = pd.read_sql("SELECT * FROM interactions", con=engine)
 
 # Safely parse genres column
 def parse_genres(genres_str):
@@ -50,48 +50,77 @@ def get_recommendations_by_user(user_id, top_n=10):
     except ValueError:
         return {'error': 'Invalid user_id format'}
 
+    # Fetch user details
     user_query = f"SELECT * FROM users WHERE user_id = {user_id}"
     user_df = pd.read_sql(user_query, con=engine)
-
     if user_df.empty:
-        # Don't recommend if user doesn't exist
         return {'error': f'User ID {user_id} not found'}
 
-    preferred_genre = user_df['preferred_genre'].iloc[0]
+    # Load fresh interactions
+    interactions_df = pd.read_sql("SELECT * FROM interactions", con=engine)
+    user_interactions = interactions_df[interactions_df['user_id'] == user_id]
 
-    if user_id not in interactions_df['user_id'].values:
+    # Cold start case
+    if user_interactions.empty:
+        preferred_genre = user_df['preferred_genres'].iloc[0]
         genre_books = books_df[books_df['genres'].apply(
             lambda g: preferred_genre.lower() in [x.lower() for x in g]
-        )]
+        )].sort_values(by='rating', ascending=False)
 
-        if genre_books.empty:
-            return books_df.sort_values(by='rating', ascending=False)[
-                ['title', 'author', 'coverImg']
-            ].head(top_n).to_dict(orient='records')
+        if len(genre_books) < top_n:
+            other_books = books_df[~books_df['bookId'].isin(genre_books['bookId'])] \
+                .sort_values(by='rating', ascending=False)
+            genre_books = pd.concat([genre_books, other_books])
 
-        return genre_books.sort_values(by='rating', ascending=False)[
+        return genre_books[['title', 'author', 'coverImg']].head(top_n).to_dict(orient='records')
+
+    # Action weights
+    action_weights = {
+        'click': 1,
+        'view': 2,
+        'requested': 2,
+        'like': 3,
+        'search': 0.5
+    }
+
+    # Score genres from interactions
+    user_interactions['weight'] = user_interactions['action'].map(action_weights).fillna(0)
+    merged = pd.merge(user_interactions, books_df, left_on='book_id', right_on='bookId')
+
+    genre_scores = {}
+    for _, row in merged.iterrows():
+        for genre in row['genres']:
+            genre_lower = genre.lower()
+            genre_scores[genre_lower] = genre_scores.get(genre_lower, 0) + row['weight']
+
+    if not genre_scores:
+        return books_df.sort_values(by='rating', ascending=False)[
             ['title', 'author', 'coverImg']
         ].head(top_n).to_dict(orient='records')
 
-    # Predict scores using the model
-    candidate_books = books_df['bookId'].values
-    user_array = np.full(len(candidate_books), user_id)
-    scores = ncf_model.predict([user_array, candidate_books], verbose=0).flatten()
-    top_indices = scores.argsort()[-top_n:][::-1]
-    recommended_book_ids = candidate_books[top_indices]
+    # Sort genres and get books
+    sorted_genres = sorted(genre_scores.items(), key=lambda x: x[1], reverse=True)
+    top_genres = [g for g, _ in sorted_genres[:3]]
 
-    # Filter recommended by preferred genre
-    genre_filtered_books = books_df[books_df['genres'].apply(
-        lambda g: preferred_genre.lower() in [x.lower() for x in g]
+    # Filter books from top genres
+    filtered_books = books_df[books_df['genres'].apply(
+        lambda genres: any(g in [x.lower() for x in genres] for g in top_genres)
     )]
-    if not genre_filtered_books.empty:
-        genre_book_ids = set(genre_filtered_books['bookId'])
-        filtered_ids = [bid for bid in recommended_book_ids if bid in genre_book_ids]
-        recommended_book_ids = filtered_ids or list(candidate_books[top_indices])
 
-    return books_df[books_df['bookId'].isin(recommended_book_ids)][
-        ['title', 'author', 'coverImg']
-    ].head(top_n).to_dict(orient='records')
+    if filtered_books.empty:
+        filtered_books = books_df  # fallback to all books
+
+    # Use NCF model to rank books
+    book_ids = filtered_books['bookId'].values
+    user_array = np.full(len(book_ids), user_id)
+    scores = ncf_model.predict([user_array, book_ids], verbose=0).flatten()
+
+    filtered_books = filtered_books.copy()
+    filtered_books['score'] = scores
+    recommended_books = filtered_books.sort_values(by='score', ascending=False).head(top_n)
+
+    return recommended_books[['title', 'author', 'coverImg']].to_dict(orient='records')
+
 
 
 def get_recommendations_by_genre(genre, top_n=10):
