@@ -27,22 +27,6 @@ engine = create_engine(connection_string)
 
 recommend_user_bp   = Blueprint("recommend_user", __name__)
 recommend_genre_bp  = Blueprint("recommend_genre", __name__)
-model_training      = Blueprint("model_training", __name__)
-
-@model_training.route('/train/model', methods=['POST'])
-def trigger_model_training():
-    try:
-        # Fetch data from DB
-        interactions_df = pd.read_sql("SELECT * FROM interactions", con=engine)
-        books_df = pd.read_sql("SELECT * FROM books", con=engine)
-        users_df = pd.read_sql("SELECT * FROM users", con=engine)
-
-        # Call your training function with required inputs
-        train_ncf_model(interactions_df, books_df, users_df)
-
-        return jsonify({'message': 'Model training triggered successfully.'}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
     
 @recommend_user_bp.route('/recommend/user/', methods=['GET'])
 def recommend_for_user():
