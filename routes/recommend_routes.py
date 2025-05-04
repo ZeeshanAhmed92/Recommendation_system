@@ -7,23 +7,6 @@ from sqlalchemy import create_engine
 from flask import Blueprint, jsonify, request
 from services.recommend_service import get_recommendations_by_user
 from services.recommend_service import get_recommendations_by_genre
-from services.model_trigger import train_ncf_model
-
-# Load environment variables
-load_dotenv()
-
-# Global model reference
-ncf_model = None
-
-# DB credentials
-db_user = os.getenv('DB_USER')
-db_password = os.getenv('DB_PASSWORD')
-db_host = os.getenv('DB_HOST')
-db_name = os.getenv('DB_NAME')
-
-# Create SQLAlchemy engine
-connection_string = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:3306/{db_name}"
-engine = create_engine(connection_string)
 
 recommend_user_bp   = Blueprint("recommend_user", __name__)
 recommend_genre_bp  = Blueprint("recommend_genre", __name__)
